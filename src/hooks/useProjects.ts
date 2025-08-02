@@ -162,6 +162,11 @@ export function useProjects() {
     }
 
     try {
+      // Optimistic update: immediately remove from UI
+      const originalProjects = [...projects]
+      setProjects(prev => prev.filter(p => p.id !== projectId))
+
+      // Perform the actual delete
       const { error: deleteError } = await supabase
         .from('projects')
         .delete()
@@ -169,12 +174,12 @@ export function useProjects() {
         .eq('user_id', user.id) // Ensure user can only delete their own projects
 
       if (deleteError) {
+        // Rollback optimistic update on error
+        setProjects(originalProjects)
         throw deleteError
       }
 
-      // Refresh projects list
-      await fetchProjects()
-      
+      // Success - the optimistic update stands
       return { error: null }
     } catch (err) {
       console.error('Error deleting project:', err)

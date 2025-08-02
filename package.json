@@ -9,10 +9,16 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ai-sdk/google": "^2.0.0",
+    "@ai-sdk/react": "^2.0.0",
     "@supabase/supabase-js": "^2.53.0",
+    "@tailwindcss/typography": "^0.5.16",
+    "ai": "^5.0.0",
     "next": "15.4.5",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "react-markdown": "^10.1.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

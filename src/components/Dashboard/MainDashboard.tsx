@@ -1,16 +1,23 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useProjects } from '../../hooks/useProjects'
 import MetricsSection from './MetricsSection'
 import ProjectCard from './ProjectCard'
-import CreateProjectModal from './CreateProjectModal'
+import RubyProjectScopingChat, { type RubyProjectScopingChatRef } from './RubyProjectScopingChat'
+import ProjectConfirmationModal from './ProjectConfirmationModal'
 
 export default function MainDashboard() {
   const { user, signOut } = useAuth()
-  const { projects, loading: projectsLoading } = useProjects()
+  const { projects, loading: projectsLoading, createProject } = useProjects()
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showConfirmationModal, setShowConfirmationModal] = useState(false)
+  const [pendingProject, setPendingProject] = useState<{ name: string; description: string } | null>(null)
+  const [isCreatingProject, setIsCreatingProject] = useState(false)
+  
+  // Ref for Ruby chat component
+  const rubyChatRef = useRef<RubyProjectScopingChatRef>(null)
 
   // Get time-based greeting
   const getTimeBasedGreeting = () => {
@@ -41,6 +48,49 @@ export default function MainDashboard() {
 
   const handleSignOut = async () => {
     await signOut()
+  }
+
+  const handleProjectGoalSet = (projectName: string, projectDescription: string) => {
+    setPendingProject({ name: projectName, description: projectDescription })
+    setShowCreateModal(false)
+    setShowConfirmationModal(true)
+  }
+
+  const handleConfirmProject = async (name: string, description: string) => {
+    setIsCreatingProject(true)
+    try {
+      await createProject({
+        title: name,
+        description: description,
+        project_type: 'experiment', // Default type, Ruby should provide better categorization later
+        initial_request: name, // Could be improved to store the actual initial request
+        scoped_goal: description,
+        duration_weeks: 3, // Default 3 weeks
+        learning_goal: description,
+        difficulty_level: 'beginner' // Default level
+      })
+      
+      setShowConfirmationModal(false)
+      setPendingProject(null)
+    } catch (error) {
+      console.error('Error creating project:', error)
+      alert('Failed to create project. Please try again.')
+    } finally {
+      setIsCreatingProject(false)
+    }
+  }
+
+  const handleCancelProject = async () => {
+    setShowConfirmationModal(false)
+    setPendingProject(null)
+    setShowCreateModal(true) // Reopen chat for new conversation
+    
+    // Start a new conversation to ensure fresh conversation ID
+    try {
+      await rubyChatRef.current?.restartConversation()
+    } catch (err) {
+      console.error('Failed to restart conversation:', err)
+    }
   }
 
   return (
@@ -145,10 +195,22 @@ export default function MainDashboard() {
         </div>
       </div>
 
-      {/* Create Project Modal */}
-      <CreateProjectModal 
+      {/* Ruby Project Scoping Chat */}
+      <RubyProjectScopingChat 
+        ref={rubyChatRef}
         isOpen={showCreateModal} 
-        onClose={() => setShowCreateModal(false)} 
+        onClose={() => setShowCreateModal(false)}
+        onProjectGoalSet={handleProjectGoalSet}
+      />
+
+      {/* Project Confirmation Modal */}
+      <ProjectConfirmationModal
+        isOpen={showConfirmationModal}
+        projectName={pendingProject?.name || ''}
+        projectDescription={pendingProject?.description || ''}
+        onConfirm={handleConfirmProject}
+        onCancel={handleCancelProject}
+        isCreating={isCreatingProject}
       />
     </div>
   )
