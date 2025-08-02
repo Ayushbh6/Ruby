@@ -29,6 +29,7 @@ const RubyProjectScopingChat = forwardRef<RubyProjectScopingChatRef, RubyProject
   const [messages, setMessages] = useState<Message[]>([])
   const [userInput, setUserInput] = useState('')
   const currentInputRef = useRef('')
+  const currentConversationRef = useRef<any>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   
   // Goal setting conversation hook
@@ -43,26 +44,20 @@ const RubyProjectScopingChat = forwardRef<RubyProjectScopingChatRef, RubyProject
     getLatestConversation
   } = useGoalSettingConversation()
 
-  const { object, submit, isLoading, error } = useObject({
+  const { object, submit, isLoading, error, stop } = useObject({
     api: '/api/project-scoping-chat',
     schema: rubyProjectScopingSchema,
     onFinish: async (result) => {
-      console.log('Generation finished:', result)
-      
-      // Add the completed message to UI immediately to prevent duplication
-      if (result?.object && currentInputRef.current) {
-        setMessages(prev => [...prev, {
-          user: currentInputRef.current,
-          ruby: result.object!.response
-        }])
-      }
-      
-      // Save messages to database in background
-      if (currentConversation && result?.object) {
+      // Save messages to database in background  
+      if (currentConversationRef.current && result?.object && currentInputRef.current) {
         try {
-          await addMessage('assistant', result.object.response)
+          // Save assistant message only (user message already saved in handleSubmit)
+          await addMessage('assistant', result.object.response, currentConversationRef.current)
+          
+          // Clear immediately to prevent duplication
+          currentInputRef.current = ''
         } catch (err) {
-          console.error('Failed to save assistant message:', err)
+          console.error('Failed to save messages:', err)
         }
       }
       
@@ -91,7 +86,7 @@ const RubyProjectScopingChat = forwardRef<RubyProjectScopingChatRef, RubyProject
     if (isOpen && !currentConversation) {
       initializeConversation()
     }
-  }, [isOpen])
+  }, [isOpen, currentConversation])
 
   // Convert database messages to UI format
   useEffect(() => {
@@ -122,14 +117,14 @@ const RubyProjectScopingChat = forwardRef<RubyProjectScopingChatRef, RubyProject
       if (latestConversation) {
         // Load existing conversation
         await loadConversation(latestConversation.session_id)
-      } else {
-        // Start new conversation
-        await startNewConversation()
       }
+      // If no existing conversation, do nothing - user will need to start chatting first
     } catch (err) {
       console.error('Failed to initialize conversation:', err)
+      // Don't create new conversation on error - just log it
     }
   }
+
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -163,10 +158,24 @@ const RubyProjectScopingChat = forwardRef<RubyProjectScopingChatRef, RubyProject
     const currentInput = userInput.trim()
     currentInputRef.current = currentInput
     
-    // Save user message to database
-    if (currentConversation) {
+    // Ensure we have a conversation - create one if needed
+    let conversationForMessage = currentConversation
+    if (!conversationForMessage) {
       try {
-        await addMessage('user', currentInput)
+        conversationForMessage = await startNewConversation()
+      } catch (err) {
+        console.error('Failed to create new conversation:', err)
+        return // Don't proceed if conversation creation failed
+      }
+    }
+    
+    // Store conversation in ref for onFinish callback to use
+    currentConversationRef.current = conversationForMessage
+    
+    // Save user message to database using the conversation object
+    if (conversationForMessage) {
+      try {
+        await addMessage('user', currentInput, conversationForMessage)
       } catch (err) {
         console.error('Failed to save user message:', err)
       }
@@ -260,24 +269,39 @@ const RubyProjectScopingChat = forwardRef<RubyProjectScopingChatRef, RubyProject
             </div>
           ))}
 
-          {/* Current Ruby Response (Streaming) - only show if actively streaming */}
-          {object && isLoading && (
-            <div className="flex items-start space-x-3">
-              <div className="w-8 h-8 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full shadow-[inset_0_2px_4px_rgba(255,255,255,0.4)] flex items-center justify-center flex-shrink-0">
-                <span className="text-sm font-bold text-white">R</span>
-              </div>
-              <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-100/50 rounded-[16px] shadow-[inset_0_2px_4px_rgba(255,255,255,0.6)] p-4 max-w-[75%] break-words">
-                <div className="text-gray-800 prose prose-sm max-w-none">
-                  <ReactMarkdown>{object.response || '...'}</ReactMarkdown>
+          {/* Current conversation turn (user message + streaming response) */}
+          {currentInputRef.current && (
+            <div className="space-y-3">
+              {/* Current User Message */}
+              <div className="flex justify-end">
+                <div className="bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-100/50 rounded-[16px] shadow-[inset_0_2px_4px_rgba(255,255,255,0.6)] p-4 max-w-[75%] break-words">
+                  <p className="text-gray-800">{currentInputRef.current}</p>
                 </div>
-                {object.goal_set && object.project_name && (
-                  <div className="mt-3 p-3 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-100/50 rounded-[12px] animate-in slide-in-from-bottom-2 fade-in duration-500">
-                    <p className="text-green-800 font-medium">🎉 Perfect! I found your project goal:</p>
-                    <p className="text-green-700 font-bold mt-1">{object.project_name}</p>
-                    <p className="text-green-600 text-sm mt-2">{object.project_description}</p>
-                  </div>
-                )}
               </div>
+
+              {/* Current Ruby Response (Streaming) */}
+              {object && (
+                <div className="flex items-start space-x-3">
+                  <div className="w-8 h-8 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full shadow-[inset_0_2px_4px_rgba(255,255,255,0.4)] flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm font-bold text-white">R</span>
+                  </div>
+                  <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-100/50 rounded-[16px] shadow-[inset_0_2px_4px_rgba(255,255,255,0.6)] p-4 max-w-[75%] break-words">
+                    <div className="text-gray-800 prose prose-sm max-w-none">
+                      <ReactMarkdown>{object.response || '...'}</ReactMarkdown>
+                    </div>
+                    {isLoading && (
+                      <div className="mt-2 text-gray-500 text-xs">Streaming...</div>
+                    )}
+                    {object.goal_set && object.project_name && (
+                      <div className="mt-3 p-3 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-100/50 rounded-[12px] animate-in slide-in-from-bottom-2 fade-in duration-500">
+                        <p className="text-green-800 font-medium">🎉 Perfect! I found your project goal:</p>
+                        <p className="text-green-700 font-bold mt-1">{object.project_name}</p>
+                        <p className="text-green-600 text-sm mt-2">{object.project_description}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

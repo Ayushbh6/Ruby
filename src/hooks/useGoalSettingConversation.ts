@@ -37,7 +37,7 @@ export function useGoalSettingConversation() {
   }
 
   // Create a new goal setting conversation
-  const startNewConversation = async (): Promise<string | null> => {
+  const startNewConversation = async (): Promise<GoalSettingConversation | null> => {
     if (!user) {
       setError('User must be authenticated')
       return null
@@ -68,7 +68,7 @@ export function useGoalSettingConversation() {
 
       setCurrentConversation(data)
       setMessages([])
-      return sessionId
+      return data
     } catch (err) {
       console.error('Error starting conversation:', err)
       setError(err instanceof Error ? err.message : 'Failed to start conversation')
@@ -123,8 +123,9 @@ export function useGoalSettingConversation() {
   }
 
   // Add a message to the current conversation
-  const addMessage = async (role: 'user' | 'assistant', content: string) => {
-    if (!currentConversation) {
+  const addMessage = async (role: 'user' | 'assistant', content: string, conversation?: GoalSettingConversation) => {
+    const conversationToUse = conversation || currentConversation
+    if (!conversationToUse) {
       throw new Error('No active conversation')
     }
 
@@ -133,7 +134,7 @@ export function useGoalSettingConversation() {
       const { data: maxOrderResult, error: maxOrderError } = await supabase
         .from('goal_setting_messages')
         .select('message_order')
-        .eq('conversation_id', currentConversation.id)
+        .eq('conversation_id', conversationToUse.id)
         .order('message_order', { ascending: false })
         .limit(1)
 
@@ -147,7 +148,7 @@ export function useGoalSettingConversation() {
         .from('goal_setting_messages')
         .insert([
           {
-            conversation_id: currentConversation.id,
+            conversation_id: conversationToUse.id,
             role,
             content,
             message_order: messageOrder
@@ -166,7 +167,7 @@ export function useGoalSettingConversation() {
         .update({ 
           total_messages: messageOrder 
         })
-        .eq('id', currentConversation.id)
+        .eq('id', conversationToUse.id)
 
       if (updateError) {
         throw updateError
@@ -234,13 +235,12 @@ export function useGoalSettingConversation() {
         .eq('final_goal_decided', false) // Only unfinished conversations
         .order('started_at', { ascending: false })
         .limit(1)
-        .single()
 
-      if (error && error.code !== 'PGRST116') { // Not "no rows returned"
+      if (error) {
         throw error
       }
 
-      return data
+      return data?.[0] || null
     } catch (err) {
       console.error('Error getting latest conversation:', err)
       return null
