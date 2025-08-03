@@ -112,7 +112,13 @@ export const rubyProjectOverviewSchema = z.object({
   
   learning_trajectory: z
     .string()
-    .describe("A clear 2-3 sentence explanation of the learning progression - what concepts will be learned and how they build up week by week.")
+    .describe("A clear 2-3 sentence explanation of the learning progression - what concepts will be learned and how they build up week by week."),
+  
+  target_concepts: z
+    .array(z.string())
+    .min(4)
+    .max(8)
+    .describe("4-8 core programming concepts the student will master through this project (e.g., 'variables', 'functions', 'loops', 'conditionals', 'events')")
 })
 
 export type RubyProjectOverview = z.infer<typeof rubyProjectOverviewSchema>
@@ -147,7 +153,53 @@ export const rubyWeeklyBreakdownSchema = z.object({
     .array(z.string())
     .min(3)
     .max(6)
-    .describe("3-6 specific skills/abilities the student will have mastered by completing this project")
+    .describe("3-6 specific skills/abilities the student will have mastered by completing this project"),
+  
+  key_milestones: z
+    .array(
+      z.object({
+        title: z.string().describe("Clear milestone title (e.g., 'First Working Game', 'Animation Complete')"),
+        description: z.string().describe("Brief description of what this milestone represents"),
+        target_week: z.number().min(1).max(4).describe("Which week this milestone should be achieved")
+      })
+    )
+    .min(2)
+    .max(5)
+    .describe("2-5 key project milestones that mark significant progress and achievements")
 })
 
 export type RubyWeeklyBreakdown = z.infer<typeof rubyWeeklyBreakdownSchema>
+
+/**
+ * Backend Auto-Calculation Helper
+ * 
+ * Calculates project metadata from existing data instead of using AI.
+ * More reliable and cheaper than AI calculations.
+ */
+export function calculateProjectMetadata(
+  weeklyBreakdown: RubyWeeklyBreakdown['weekly_breakdown'],
+  durationWeeks: number
+) {
+  // Calculate total sessions from weekly estimates
+  const totalSessions = weeklyBreakdown.reduce((sum, week) => sum + week.estimated_sessions, 0)
+  
+  // Calculate estimated completion time (assume 45 minutes per session)
+  const totalMinutes = totalSessions * 45
+  const completionTimeText = totalMinutes > 60 
+    ? `${Math.round(totalMinutes / 60)} hours`
+    : `${totalMinutes} minutes`
+  
+  // Create milestone array from key_milestones if available
+  const milestonesReached: Array<{
+    title: string
+    completed: boolean
+    target_week: number
+  }> = []
+  
+  return {
+    total_sessions: totalSessions,
+    completion_time: completionTimeText,
+    milestones_reached: milestonesReached,
+    progress_percentage: 0 // Will be updated as project progresses
+  }
+}

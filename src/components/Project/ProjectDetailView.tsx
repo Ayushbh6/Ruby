@@ -4,10 +4,14 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
 import { useAuth } from '../../hooks/useAuth'
+import { useWeeklyPlans } from '../../hooks/useWeeklyPlans'
+import { useConversations } from '../../hooks/useConversations'
+import { useCodeArtifacts } from '../../hooks/useCodeArtifacts'
 import { supabase } from '../../lib/supabase'
 import { 
   type RubyProjectOverview,
-  type RubyWeeklyBreakdown
+  type RubyWeeklyBreakdown,
+  calculateProjectMetadata
 } from '../../lib/schemas'
 import type { Project } from '../../hooks/useProjects'
 
@@ -16,7 +20,7 @@ interface ProjectDetailViewProps {
   onProjectUpdated: (updates: Partial<Project>) => void
 }
 
-type ProjectPhase = 'planning' | 'active' | 'completed'
+type ProjectPhase = 'planning' | 'active' | 'completed' | 'paused' | 'archived'
 type PlanningStep = 'overview' | 'overview-review' | 'breakdown' | 'complete'
 
 export default function ProjectDetailView({
@@ -25,6 +29,33 @@ export default function ProjectDetailView({
 }: ProjectDetailViewProps) {
   const router = useRouter()
   const { getAuthToken } = useAuth()
+  
+  // Weekly plans hook
+  const { weeklyPlans, loading: weeklyPlansLoading, fetchWeeklyPlans, createWeeklyPlansFromMasterPlan } = useWeeklyPlans(project.id)
+  const currentWeekPlan = weeklyPlans.find(plan => plan.week_number === project.current_week)
+  
+  // Conversations hook - pass current week's plan ID if available
+  const {
+    conversations,
+    activeConversation,
+    messages,
+    loading: conversationsLoading,
+    sendingMessage,
+    createConversation,
+    sendMessage,
+    setActiveConversation,
+    clearActiveConversation
+  } = useConversations(project.id, currentWeekPlan?.id)
+  
+  // Code artifacts hook
+  const {
+    artifacts,
+    currentArtifact,
+    loading: artifactsLoading,
+    createArtifact,
+    updateExecutionStatus,
+    selectArtifact
+  } = useCodeArtifacts(project.id)
   
   const [phase, setPhase] = useState<ProjectPhase>(project.status as ProjectPhase || 'planning')
   const [showFullPlan, setShowFullPlan] = useState(false)
@@ -43,6 +74,17 @@ export default function ProjectDetailView({
   // Auto-save states for duration changes
   const [isSavingDuration, setIsSavingDuration] = useState(false)
   const [durationSaved, setDurationSaved] = useState(false)
+  
+  // Sidebar collapse state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  
+  // Chat input state
+  const [messageInput, setMessageInput] = useState('')
+  
+  // Conversation management state
+  const [showConversationMenu, setShowConversationMenu] = useState<string | null>(null)
+  const [renamingConversation, setRenamingConversation] = useState<string | null>(null)
+  const [renameInput, setRenameInput] = useState('')
   
   // Use refs to persist across component remounts (survives fast refresh and tab switching)
   const hasGeneratedOverviewRef = useRef(false)
@@ -312,6 +354,17 @@ export default function ProjectDetailView({
         console.error('Error fetching current project:', fetchError)
         // Don't throw error - the breakdown was generated successfully
       } else {
+        // Calculate project metadata for the database columns
+        const metadata = calculateProjectMetadata(breakdown.weekly_breakdown, updatedOverview.recommended_duration)
+        
+        // Prepare milestones array from key_milestones if available  
+        const milestonesReached = breakdown.key_milestones?.map((milestone: { title: string; description: string; target_week: number }) => ({
+          title: milestone.title,
+          description: milestone.description,
+          target_week: milestone.target_week,
+          completed: false
+        })) || []
+        
         // Combine overview and breakdown into complete master plan
         const completeMasterPlan = {
           ...currentProject.master_plan,
@@ -320,14 +373,18 @@ export default function ProjectDetailView({
           complete: true
         }
 
-        // Update the projects table with complete master plan
+        // Update the projects table with complete master plan AND populated metadata columns
         const { error: updateError } = await supabase
           .from('projects')
           .update({
             master_plan: completeMasterPlan,
             duration_weeks: updatedOverview.recommended_duration,
             status: 'planning',
-            updated_at: new Date().toISOString()
+            updated_at: new Date().toISOString(),
+            // Populate the empty database columns with calculated data
+            target_concepts: updatedOverview.target_concepts || [],
+            total_sessions: metadata.total_sessions,
+            milestones_reached: milestonesReached
           })
           .eq('id', project.id)
 
@@ -412,6 +469,96 @@ export default function ProjectDetailView({
     }
   }, [projectOverview, project.id, project.master_plan, onProjectUpdated])
 
+  // Handle sending messages
+  const handleSendMessage = useCallback(async () => {
+    if (!messageInput.trim() || !activeConversation || sendingMessage) {
+      return;
+    }
+
+    const messageText = messageInput.trim();
+    setMessageInput(''); // Clear input immediately for better UX
+
+    try {
+      // Send user message
+      await sendMessage(activeConversation.id, messageText, 'user');
+      
+      // TODO: Add AI response logic here
+      // For now, we'll just send the user message
+      // Later we can integrate with the AI service to generate Ruby's response
+      
+    } catch (error) {
+      console.error('Error sending message:', error);
+      // Restore the message input on error
+      setMessageInput(messageText);
+    }
+  }, [messageInput, activeConversation, sendingMessage, sendMessage]);
+
+  // Handle Enter key press in message input
+  const handleMessageKeyPress = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  }, [handleSendMessage]);
+
+  // Handle conversation rename
+  const handleRenameConversation = useCallback(async (conversationId: string, newTitle: string) => {
+    if (!newTitle.trim()) return;
+    
+    try {
+      const { error } = await supabase
+        .from('conversations')
+        .update({ title: newTitle.trim() })
+        .eq('id', conversationId);
+      
+      if (error) throw error;
+      
+      // Refresh conversations to show updated title
+      // The useConversations hook should automatically update
+      setRenamingConversation(null);
+      setRenameInput('');
+      setShowConversationMenu(null);
+    } catch (error) {
+      console.error('Error renaming conversation:', error);
+      alert('Failed to rename conversation. Please try again.');
+    }
+  }, []);
+
+  // Handle conversation deletion
+  const handleDeleteConversation = useCallback(async (conversationId: string) => {
+    if (!confirm('Are you sure you want to delete this conversation? This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      // Delete all messages first (due to foreign key constraint)
+      const { error: messagesError } = await supabase
+        .from('messages')
+        .delete()
+        .eq('conversation_id', conversationId);
+      
+      if (messagesError) throw messagesError;
+      
+      // Then delete the conversation
+      const { error: conversationError } = await supabase
+        .from('conversations')
+        .delete()
+        .eq('id', conversationId);
+      
+      if (conversationError) throw conversationError;
+      
+      // If we deleted the active conversation, clear it
+      if (activeConversation?.id === conversationId) {
+        clearActiveConversation();
+      }
+      
+      setShowConversationMenu(null);
+    } catch (error) {
+      console.error('Error deleting conversation:', error);
+      alert('Failed to delete conversation. Please try again.');
+    }
+  }, [activeConversation, clearActiveConversation]);
+
   // Auto-save when duration changes (with debounce)
   useEffect(() => {
     if (!projectOverview || editableDuration === projectOverview.recommended_duration) {
@@ -425,6 +572,21 @@ export default function ProjectDetailView({
     return () => clearTimeout(timeoutId)
   }, [editableDuration, saveDurationChange])
 
+  // Close conversation menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('.conversation-menu')) {
+        setShowConversationMenu(null);
+      }
+    };
+
+    if (showConversationMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showConversationMenu]);
+
   const handleApprovePlan = async () => {
     if (!projectOverview || !weeklyBreakdown || !weeklyBreakdown.weekly_breakdown || weeklyBreakdown.weekly_breakdown.length === 0) {
       alert('Plan is not fully generated yet. Please wait for Ruby to finish.')
@@ -433,12 +595,52 @@ export default function ProjectDetailView({
     
     setIsApproving(true)
     try {
-      // Simply mark the plan as approved and move to active phase
+      // Calculate project metadata using backend calculations
+      const metadata = calculateProjectMetadata(weeklyBreakdown.weekly_breakdown, editableDuration)
+      
+      // Prepare milestones array from key_milestones if available
+      const milestonesReached = weeklyBreakdown.key_milestones?.map((milestone: { title: string; description: string; target_week: number }) => ({
+        title: milestone.title,
+        description: milestone.description,
+        target_week: milestone.target_week,
+        completed: false
+      })) || []
+      
+      // Create weekly plans from the master plan
+      if (weeklyBreakdown && projectOverview) {
+        console.log('🗓️ Creating weekly plans from master plan...')
+        
+        // Construct the master plan object needed by the hook
+        const masterPlanForWeeklyPlans = {
+          response: weeklyBreakdown.response,
+          project_analysis: projectOverview.project_analysis,
+          project_type: projectOverview.project_type,
+          recommended_duration: editableDuration,
+          difficulty_assessment: projectOverview.difficulty_assessment,
+          learning_trajectory: projectOverview.learning_trajectory,
+          weekly_breakdown: weeklyBreakdown.weekly_breakdown,
+          success_criteria: weeklyBreakdown.success_criteria
+        }
+        
+        const { error: weeklyPlansError } = await createWeeklyPlansFromMasterPlan(project.id, masterPlanForWeeklyPlans)
+        
+        if (weeklyPlansError) {
+          console.error('Error creating weekly plans:', weeklyPlansError)
+          alert('Failed to create weekly plans. Please try again.')
+          return
+        }
+      }
+      
+      // Simply mark the plan as approved and move to active phase with calculated metadata
       await onProjectUpdated({
         plan_approved: true,
         plan_approved_at: new Date().toISOString(),
         status: 'active',
-        current_week: 1
+        current_week: 1,
+        // Populate the empty database columns with calculated data
+        target_concepts: projectOverview.target_concepts || [],
+        total_sessions: metadata.total_sessions,
+        milestones_reached: milestonesReached
       })
       
       // Move to active phase
@@ -460,44 +662,66 @@ export default function ProjectDetailView({
     return emojis[weekNumber - 1] || '✨'
   }
 
+  const getPhaseSubtitle = (currentPhase: ProjectPhase) => {
+    if (currentPhase === 'planning') return 'Planning Phase'
+    if (currentPhase === 'active') return `Week ${project.current_week}/${project.duration_weeks}`
+    if (currentPhase === 'completed') return 'Completed'
+    if (currentPhase === 'paused') return 'Paused'
+    return 'Archived'
+  }
+
+  const getPhaseStyles = (currentPhase: ProjectPhase) => {
+    if (currentPhase === 'planning') return 'bg-yellow-100 text-yellow-800'
+    if (currentPhase === 'active') return 'bg-green-100 text-green-800'
+    if (currentPhase === 'completed') return 'bg-blue-100 text-blue-800'
+    if (currentPhase === 'paused') return 'bg-orange-100 text-orange-800'
+    return 'bg-gray-100 text-gray-800'
+  }
+
+  const getPhaseLabel = (currentPhase: ProjectPhase) => {
+    if (currentPhase === 'planning') return '📋 Planning'
+    if (currentPhase === 'active') return '🚀 Active'
+    if (currentPhase === 'completed') return '✅ Completed'
+    if (currentPhase === 'paused') return '⏸️ Paused'
+    return '📦 Archived'
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
-      {/* Header */}
-      <div className="bg-white/70 backdrop-blur-md border-b border-white/30 shadow-[0_4px_24px_rgba(147,51,234,0.1)]">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={handleBackToDashboard}
-                className="w-10 h-10 bg-white/60 backdrop-blur-sm border border-white/30 rounded-full shadow-[inset_0_2px_4px_rgba(255,255,255,0.6)] flex items-center justify-center text-gray-600 hover:text-purple-600 transition-colors"
-              >
-                ←
-              </button>
-              
-              <div>
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
-                  {project.title}
-                </h1>
-                <p className="text-gray-600 text-sm">
-                  {phase === 'planning' ? 'Planning Phase' : phase === 'active' ? `Week ${project.current_week}/${project.duration_weeks}` : 'Completed'}
-                </p>
+    <div className={phase === 'active' ? '' : 'min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100'}>
+      {/* Header - Only for planning/completed/paused/archived phases */}
+      {phase !== 'active' && (
+        <div className="bg-white/70 backdrop-blur-md border-b border-white/30 shadow-[0_4px_24px_rgba(147,51,234,0.1)]">
+          <div className="container mx-auto px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <button
+                  onClick={handleBackToDashboard}
+                  className="w-10 h-10 bg-white/60 backdrop-blur-sm border border-white/30 rounded-full shadow-[inset_0_2px_4px_rgba(255,255,255,0.6)] flex items-center justify-center text-gray-600 hover:text-purple-600 transition-colors"
+                >
+                  ←
+                </button>
+                
+                <div>
+                  <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                    {project.title}
+                  </h1>
+                  <p className="text-gray-600 text-sm">
+                    {getPhaseSubtitle(phase)}
+                  </p>
+                </div>
               </div>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                phase === 'planning' ? 'bg-yellow-100 text-yellow-800' :
-                phase === 'active' ? 'bg-green-100 text-green-800' :
-                'bg-blue-100 text-blue-800'
-              }`}>
-                {phase === 'planning' ? '📋 Planning' : phase === 'active' ? '🚀 Active' : '✅ Completed'}
-              </span>
+              
+              <div className="flex items-center space-x-2">
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getPhaseStyles(phase)}`}>
+                  {getPhaseLabel(phase)}
+                </span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="container mx-auto px-6 py-8">
+      <div className={phase === 'active' ? '' : 'container mx-auto px-6 py-8'}>
         {/* Planning Phase */}
         {phase === 'planning' && (
           <div className="max-w-4xl mx-auto">
@@ -880,25 +1104,526 @@ export default function ProjectDetailView({
 
         {/* Active Phase */}
         {phase === 'active' && (
-          <div className="max-w-6xl mx-auto">
-            <div className="bg-white/90 backdrop-blur-md border border-white/30 rounded-[24px] shadow-[inset_0_4px_12px_rgba(255,255,255,0.7),0_16px_48px_rgba(147,51,234,0.3)] p-8">
-              
-              <div className="text-center mb-8">
-                <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-4">
-                  Welcome to Your Project! 🚀
-                </h2>
-                <p className="text-gray-600 text-lg">
-                  This is where you'll chat with Ruby and write code for Week {project.current_week}.
-                </p>
+          <div className="h-screen flex flex-col bg-gradient-to-br from-violet-100 via-rose-100 to-sky-100">
+            {/* Top Header Bar */}
+            <div className="h-16 bg-gradient-to-r from-white/90 via-violet-50/80 to-rose-50/80 
+                          shadow-[inset_0_2px_8px_rgba(255,255,255,0.8),0_4px_16px_rgba(139,69,190,0.15)] 
+                          border-b border-violet-200/30 flex items-center justify-between px-8 rounded-b-2xl">
+              <div className="flex items-center space-x-6">
+                <button
+                  onClick={handleBackToDashboard}
+                  className="w-10 h-10 bg-gradient-to-br from-violet-200/80 via-white to-violet-100/80 
+                           text-violet-600 hover:text-violet-700 transition-all duration-300 
+                           rounded-2xl flex items-center justify-center
+                           shadow-[inset_0_2px_6px_rgba(255,255,255,0.9),0_4px_12px_rgba(139,69,190,0.2)]
+                           hover:shadow-[inset_0_1px_3px_rgba(255,255,255,0.95),0_6px_16px_rgba(139,69,190,0.25)]
+                           hover:scale-105 font-bold text-lg"
+                >
+                  ←
+                </button>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-violet-700 via-rose-600 to-sky-600 bg-clip-text text-transparent drop-shadow-sm">{project.title}</h1>
+                <span className="px-4 py-2 bg-gradient-to-br from-violet-100/90 via-white to-violet-50/90
+                               text-violet-600 text-sm font-medium rounded-2xl
+                               shadow-[inset_0_2px_6px_rgba(255,255,255,0.8),0_4px_12px_rgba(139,69,190,0.15)]">
+                  Week {project.current_week}/{project.duration_weeks}
+                </span>
+              </div>
+              <div className="flex items-center space-x-4">
+                <span className="px-5 py-2.5 bg-gradient-to-br from-emerald-200/90 via-white to-emerald-100/90 
+                               text-emerald-700 text-sm font-semibold rounded-2xl
+                               shadow-[inset_0_2px_6px_rgba(255,255,255,0.8),0_4px_12px_rgba(16,185,129,0.2)]
+                               flex items-center space-x-2">
+                  <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-lg"></span>
+                  <span>Active</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Main Content */}
+            <div className="flex-1 flex overflow-hidden p-4 space-x-4">
+              {/* Left Sidebar */}
+              <div className={`${sidebarCollapsed ? 'w-20' : 'w-80'} flex-shrink-0 bg-gradient-to-b from-violet-300/40 via-rose-300/30 to-sky-300/40 
+                              backdrop-blur-md flex flex-col transition-all duration-300 rounded-3xl
+                              shadow-[inset_0_4px_12px_rgba(255,255,255,0.6),0_8px_24px_rgba(139,69,190,0.25)]`}>
+                {/* Week Section */}
+                <div className="p-6 border-b border-white/20">
+                  <div className="flex items-center justify-between mb-4">
+                    {!sidebarCollapsed && (
+                      <div className="bg-gradient-to-r from-violet-400/90 via-rose-400/90 to-violet-500/90 
+                                    text-white text-sm font-bold px-5 py-3 rounded-2xl
+                                    shadow-[inset_0_2px_6px_rgba(255,255,255,0.3),0_6px_16px_rgba(139,69,190,0.4)]">
+                        {currentWeekPlan ? currentWeekPlan.week_title : `Week ${project.current_week}: Loading...`}
+                      </div>
+                    )}
+                    <button 
+                      onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                      className="w-12 h-12 bg-gradient-to-br from-white/60 via-violet-100/50 to-white/40 
+                               hover:from-white/70 hover:via-violet-100/60 hover:to-white/50
+                               rounded-2xl flex items-center justify-center text-violet-700 hover:text-violet-800 
+                               transition-all duration-300 font-bold text-lg
+                               shadow-[inset_0_3px_8px_rgba(255,255,255,0.8),0_4px_12px_rgba(139,69,190,0.2)]
+                               hover:shadow-[inset_0_2px_6px_rgba(255,255,255,0.9),0_6px_16px_rgba(139,69,190,0.3)]
+                               hover:scale-105"
+                    >
+                      {sidebarCollapsed ? '→' : '←'}
+                    </button>
+                  </div>
+                  {!sidebarCollapsed && (
+                    <>
+                      <div className="text-sm text-violet-700 mb-4 leading-relaxed font-medium">
+                        {currentWeekPlan?.week_description || 'Loading week description...'}
+                      </div>
+                      <div className="bg-gradient-to-r from-white/60 via-violet-50/80 to-white/50 rounded-2xl p-3
+                                    shadow-[inset_0_3px_8px_rgba(255,255,255,0.7),0_4px_12px_rgba(139,69,190,0.15)]">
+                        <div className="flex items-center space-x-3">
+                          <div className="flex-1 bg-gradient-to-r from-violet-200/60 via-white/40 to-violet-100/60 
+                                        rounded-2xl h-3 overflow-hidden
+                                        shadow-[inset_0_2px_6px_rgba(139,69,190,0.2)]">
+                            <div className="bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-400 h-3 rounded-2xl 
+                                          shadow-[0_2px_8px_rgba(16,185,129,0.4)]
+                                          transition-all duration-500" style={{width: `${currentWeekPlan?.progress_percentage || 0}%`}}></div>
+                          </div>
+                          <span className="text-sm text-violet-700 font-semibold px-2">{currentWeekPlan?.progress_percentage || 0}%</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Conversations */}
+                <div className="flex-1 p-6 space-y-3 overflow-y-auto">
+                  {!sidebarCollapsed && <div className="text-xs text-violet-600 mb-4 uppercase tracking-wider font-bold">Conversations</div>}
+                  
+                  {/* Show loading state */}
+                  {conversationsLoading && !sidebarCollapsed && (
+                    <div className="p-4 text-center text-violet-600">
+                      Loading conversations...
+                    </div>
+                  )}
+                  
+                  {/* Show existing conversations */}
+                  {!conversationsLoading && !sidebarCollapsed && conversations.map(conversation => (
+                    <div key={conversation.id} 
+                         data-conversation-id={conversation.id}
+                         className={`relative flex items-center space-x-4 p-4 rounded-2xl text-sm transition-all duration-300
+                                    shadow-[inset_0_2px_6px_rgba(255,255,255,0.7),0_4px_12px_rgba(139,69,190,0.1)]
+                                    hover:shadow-[inset_0_1px_4px_rgba(255,255,255,0.8),0_6px_16px_rgba(139,69,190,0.15)]
+                                    hover:scale-[1.02] border border-white/30 ${
+                                      activeConversation?.id === conversation.id 
+                                        ? 'bg-gradient-to-br from-violet-100/80 via-violet-50/60 to-violet-100/70'
+                                        : 'bg-gradient-to-br from-white/50 via-violet-50/40 to-white/40 backdrop-blur-sm'
+                                    } ${showConversationMenu === conversation.id ? 'z-[100000]' : 'z-10'}`}>
+                      <div className={`w-3 h-3 rounded-full shadow-[0_2px_8px_rgba(16,185,129,0.6)] ${
+                        conversation.status === 'active' ? 'bg-emerald-500 animate-pulse' :
+                        conversation.status === 'completed' ? 'bg-green-500' :
+                        conversation.status === 'interrupted' ? 'bg-yellow-500' :
+                        'bg-gray-400'
+                      }`}></div>
+                      
+                      {/* Conversation title - clickable or editable */}
+                      {renamingConversation === conversation.id ? (
+                        <input
+                          type="text"
+                          value={renameInput}
+                          onChange={(e) => setRenameInput(e.target.value)}
+                          onBlur={() => {
+                            if (renameInput.trim()) {
+                              handleRenameConversation(conversation.id, renameInput);
+                            } else {
+                              setRenamingConversation(null);
+                              setRenameInput('');
+                            }
+                          }}
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              if (renameInput.trim()) {
+                                handleRenameConversation(conversation.id, renameInput);
+                              }
+                            } else if (e.key === 'Escape') {
+                              setRenamingConversation(null);
+                              setRenameInput('');
+                            }
+                          }}
+                          autoFocus
+                          className="flex-1 bg-white/90 border border-violet-300 rounded-lg px-2 py-1 text-violet-600 font-medium focus:outline-none focus:ring-2 focus:ring-violet-400"
+                        />
+                      ) : (
+                        <span 
+                          className="flex-1 text-violet-600 font-medium cursor-pointer"
+                          onClick={() => setActiveConversation(conversation)}
+                        >
+                          {conversation.title || `${conversation.conversation_type} Session`}
+                        </span>
+                      )}
+                      
+                      <div className="flex items-center">
+                        {/* 3-dot menu button */}
+                        <div className="conversation-menu relative">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowConversationMenu(showConversationMenu === conversation.id ? null : conversation.id);
+                            }}
+                            className="w-8 h-8 rounded-xl bg-gradient-to-br from-white/80 via-violet-50/60 to-white/70 
+                                     hover:from-white/90 hover:via-violet-50/70 hover:to-white/80
+                                     flex items-center justify-center text-violet-600 hover:text-violet-700 
+                                     transition-all duration-300
+                                     shadow-[inset_0_2px_6px_rgba(255,255,255,0.8),0_3px_8px_rgba(139,69,190,0.15)]
+                                     hover:shadow-[inset_0_1px_4px_rgba(255,255,255,0.9),0_4px_10px_rgba(139,69,190,0.2)]"
+                          >
+                            <span className="text-lg font-bold leading-none">⋯</span>
+                          </button>
+                          
+                          {/* Dropdown menu */}
+                          {showConversationMenu === conversation.id && (
+                            <div className="absolute right-0 top-10 bg-white rounded-xl shadow-2xl border border-violet-200/50 py-2 min-w-[150px] z-[99999]">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRenameInput(conversation.title || `${conversation.conversation_type} Session`);
+                                  setRenamingConversation(conversation.id);
+                                  setShowConversationMenu(null);
+                                }}
+                                className="w-full text-left px-4 py-2 text-sm text-violet-700 hover:bg-violet-50 transition-colors duration-200 flex items-center space-x-2"
+                              >
+                                <span>✏️</span>
+                                <span>Rename</span>
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteConversation(conversation.id);
+                                }}
+                                className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors duration-200 flex items-center space-x-2"
+                              >
+                                <span>🗑️</span>
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* Show "Start New Conversation" button if no conversations or we want to create a new one */}
+                  {!conversationsLoading && !sidebarCollapsed && currentWeekPlan && (
+                    <div className="flex items-center space-x-4 p-4 bg-gradient-to-br from-white/50 via-violet-50/40 to-white/40 
+                                  backdrop-blur-sm rounded-2xl text-sm cursor-pointer transition-all duration-300
+                                  shadow-[inset_0_2px_6px_rgba(255,255,255,0.7),0_4px_12px_rgba(139,69,190,0.1)]
+                                  hover:shadow-[inset_0_1px_4px_rgba(255,255,255,0.8),0_6px_16px_rgba(139,69,190,0.15)]
+                                  hover:scale-[1.02] border border-white/30"
+                         onClick={async () => {
+                           if (currentWeekPlan) {
+                             const newConv = await createConversation(currentWeekPlan.id, 'New Learning Session', 'learning');
+                             if (newConv) {
+                               setActiveConversation(newConv);
+                             }
+                           }
+                         }}>
+                      <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse 
+                                    shadow-[0_2px_8px_rgba(16,185,129,0.6)]"></div>
+                      <span className="flex-1 text-violet-600 font-medium">Start New Learning Session</span>
+                      <div className="flex space-x-2">
+                        <button className="w-8 h-8 rounded-xl bg-gradient-to-br from-white/80 via-violet-50/60 to-white/70 
+                                         hover:from-white/90 hover:via-violet-50/70 hover:to-white/80
+                                         flex items-center justify-center text-violet-600 hover:text-violet-700 
+                                         transition-all duration-300
+                                         shadow-[inset_0_2px_6px_rgba(255,255,255,0.8),0_3px_8px_rgba(139,69,190,0.15)]
+                                         hover:shadow-[inset_0_1px_4px_rgba(255,255,255,0.9),0_4px_10px_rgba(139,69,190,0.2)]
+                                         hover:scale-110">
+                          <span className="text-sm font-bold">+</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Show message if no current week plan */}
+                  {!conversationsLoading && !sidebarCollapsed && !currentWeekPlan && (
+                    <div className="p-4 text-center text-violet-600/60 text-sm">
+                      Complete project planning to start conversations
+                    </div>
+                  )}
+
+                </div>
+
+                {/* Locked/Other Weeks */}
+                {!sidebarCollapsed && weeklyPlans.length > 0 && (
+                  <div className="p-6 border-t border-white/20 space-y-3">
+                    {weeklyPlans
+                      .filter(plan => plan.week_number !== project.current_week)
+                      .slice(0, 3) // Show max 3 other weeks
+                      .map(plan => (
+                        <div key={plan.id} 
+                             className="flex items-center space-x-4 p-4 bg-gradient-to-br from-white/30 via-gray-50/40 to-white/25 
+                                      rounded-2xl text-sm opacity-60
+                                      shadow-[inset_0_2px_6px_rgba(255,255,255,0.6),0_3px_8px_rgba(139,69,190,0.1)]">
+                          <span className="text-xl">{plan.status === 'locked' ? '🔒' : plan.status === 'completed' ? '✅' : '⏳'}</span>
+                          <span className="text-violet-600 font-medium">{plan.week_title}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
 
-              {/* TODO: Add the main project interface here */}
-              <div className="bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-100/50 rounded-[16px] p-8 text-center">
-                <div className="text-4xl mb-4">🚧</div>
-                <h3 className="text-xl font-bold text-gray-800 mb-2">Coming Soon!</h3>
-                <p className="text-gray-600">
-                  The main project interface with Ruby chat and code editor will be implemented here.
-                </p>
+              {/* Center Chat Area */}
+              <div className="flex-1 flex flex-col bg-gradient-to-br from-white/80 via-violet-50/30 to-rose-50/30 
+                            backdrop-blur-md rounded-3xl mx-2
+                            shadow-[inset_0_4px_12px_rgba(255,255,255,0.7),0_8px_24px_rgba(139,69,190,0.2)]">
+                {/* Chat Header */}
+                <div className="h-20 bg-gradient-to-r from-white/70 via-violet-100/50 to-rose-100/50 
+                              border-b border-violet-200/30 flex items-center px-8 rounded-t-3xl
+                              shadow-[inset_0_3px_8px_rgba(255,255,255,0.8),0_2px_6px_rgba(139,69,190,0.1)]">
+                  <div>
+                    <h3 className="text-xl font-bold text-violet-800">Getting Started with Ruby</h3>
+                    <span className="text-sm text-violet-600 font-medium">Let's build your first tic-tac-toe game together! 🎮</span>
+                  </div>
+                </div>
+
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                  {/* Show messages if there's an active conversation */}
+                  {activeConversation && messages.length > 0 ? (
+                    messages.map((message, index) => (
+                      <div key={message.id} className="flex space-x-5">
+                        {/* Avatar */}
+                        <div className={`w-12 h-12 rounded-3xl flex items-center justify-center text-white text-sm font-bold 
+                                       flex-shrink-0 shadow-[0_6px_16px_rgba(139,69,190,0.4)] ${
+                          message.role === 'ruby' 
+                            ? 'bg-gradient-to-br from-violet-400 via-rose-400 to-violet-500'
+                            : 'bg-gradient-to-br from-blue-400 via-indigo-400 to-blue-500'
+                        }`}>
+                          {message.role === 'ruby' ? 'R' : 'U'}
+                        </div>
+                        
+                        {/* Message Content */}
+                        <div className="flex-1 max-w-2xl">
+                          <div className={`rounded-3xl p-6 border shadow-[inset_0_3px_8px_rgba(255,255,255,0.8),0_6px_20px_rgba(139,69,190,0.2)] ${
+                            message.role === 'ruby'
+                              ? 'bg-gradient-to-br from-white/90 via-violet-50/80 to-rose-50/70 border-violet-200/40'
+                              : 'bg-gradient-to-br from-blue-50/90 via-white/80 to-blue-50/70 border-blue-200/40'
+                          }`}>
+                            <p className={`leading-relaxed font-medium ${
+                              message.role === 'ruby' ? 'text-violet-800' : 'text-blue-800'
+                            }`}>
+                              {message.content}
+                            </p>
+                            
+                            {/* Show code if present */}
+                            {message.code && (
+                              <div className="mt-4 p-4 bg-gray-900 rounded-2xl overflow-x-auto">
+                                <pre className="text-green-400 text-sm">
+                                  <code>{message.code}</code>
+                                </pre>
+                              </div>
+                            )}
+                            
+                            {/* Show concept taught if present */}
+                            {message.concept_taught && (
+                              <div className="mt-3 px-3 py-1 bg-violet-100/60 rounded-full text-xs text-violet-600 font-medium inline-block">
+                                💡 {message.concept_taught}
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Timestamp */}
+                          <div className={`text-xs mt-3 ml-3 font-medium ${
+                            message.role === 'ruby' ? 'text-violet-500' : 'text-blue-500'
+                          }`}>
+                            {message.role === 'ruby' ? 'Ruby' : 'You'} • {new Date(message.timestamp).toLocaleTimeString()}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : activeConversation ? (
+                    /* Empty conversation state */
+                    <div className="flex items-center justify-center py-12">
+                      <div className="text-center text-violet-400">
+                        <div className="text-4xl mb-4">💬</div>
+                        <p className="text-lg font-medium">Start your conversation with Ruby!</p>
+                        <p className="text-sm mt-2">Ask questions about your project or get help with coding.</p>
+                      </div>
+                    </div>
+                  ) : (
+                    /* No conversation selected */
+                    <div className="flex items-center justify-center py-12">
+                      <div className="text-center text-violet-400">
+                        <div className="text-4xl mb-4">🚀</div>
+                        <p className="text-lg font-medium">Select a conversation to get started</p>
+                        <p className="text-sm mt-2">Choose a conversation from the sidebar or start a new one!</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Message Input */}
+                <div className="p-8 bg-gradient-to-r from-white/60 via-violet-100/50 to-rose-100/50 
+                              border-t border-violet-200/30 rounded-b-3xl
+                              shadow-[inset_0_3px_8px_rgba(255,255,255,0.8),0_-2px_6px_rgba(139,69,190,0.1)]">
+                  <div className="flex space-x-4">
+                    <input 
+                      type="text" 
+                      value={messageInput}
+                      onChange={(e) => setMessageInput(e.target.value)}
+                      onKeyPress={handleMessageKeyPress}
+                      disabled={!activeConversation || sendingMessage}
+                      placeholder={activeConversation ? "Ask Ruby anything about your code..." : "Select a conversation to start chatting"}
+                      className="flex-1 px-6 py-4 bg-gradient-to-br from-white/90 via-white to-white/80 
+                               backdrop-blur-sm border-2 border-violet-200/50 rounded-2xl 
+                               focus:outline-none focus:ring-4 focus:ring-violet-300/30 focus:border-violet-400 
+                               transition-all duration-300 font-medium text-violet-800
+                               shadow-[inset_0_3px_8px_rgba(255,255,255,0.8),0_4px_12px_rgba(139,69,190,0.15)]
+                               placeholder-violet-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    <button 
+                      onClick={handleSendMessage}
+                      disabled={!messageInput.trim() || !activeConversation || sendingMessage}
+                      className="px-8 py-4 bg-gradient-to-br from-violet-500 via-rose-500 to-violet-600 
+                               text-white rounded-2xl hover:from-violet-600 hover:via-rose-600 hover:to-violet-700
+                               transition-all duration-300 font-bold text-sm
+                               shadow-[inset_0_2px_6px_rgba(255,255,255,0.2),0_6px_20px_rgba(139,69,190,0.4)]
+                               hover:shadow-[inset_0_1px_4px_rgba(255,255,255,0.3),0_8px_24px_rgba(139,69,190,0.5)]
+                               hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100">
+                      {sendingMessage ? 'Sending...' : 'Send'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Preview Pane - Claude Artifacts Style */}
+              <div className="flex-1 min-w-0 bg-white rounded-lg border border-gray-200 flex flex-col overflow-hidden">
+                {/* Header with tabs */}
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
+                  <div className="flex items-center space-x-4">
+                    <div className="flex space-x-1">
+                      <button className="px-3 py-1.5 text-sm font-medium text-gray-900 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50">
+                        Preview
+                      </button>
+                      <button className="px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md">
+                        Code
+                      </button>
+                    </div>
+                    
+                    {/* Version Selector */}
+                    {artifacts.length > 0 && (
+                      <select
+                        value={currentArtifact?.id || ''}
+                        onChange={(e) => {
+                          const artifact = artifacts.find(a => a.id === e.target.value);
+                          if (artifact) selectArtifact(artifact);
+                        }}
+                        className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="">Select version</option>
+                        {artifacts.map((artifact) => (
+                          <option key={artifact.id} value={artifact.id}>
+                            v{artifact.version_number}{artifact.title ? `: ${artifact.title}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center space-x-2">
+                    {currentArtifact && (
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                        currentArtifact.execution_status === 'success' ? 'bg-green-100 text-green-800' :
+                        currentArtifact.execution_status === 'error' ? 'bg-red-100 text-red-800' :
+                        'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {currentArtifact.execution_status}
+                      </span>
+                    )}
+                    <button className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Main Content Area */}
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  {currentArtifact ? (
+                    <>
+                      {/* Live Preview Area */}
+                      <div className="flex-1 bg-white border-b border-gray-200 flex items-center justify-center overflow-hidden">
+                        <div className="w-full h-full max-w-4xl mx-auto">
+                          {/* Game Board or App Preview */}
+                          <div className="h-full flex items-center justify-center bg-gray-50">
+                            <div className="text-center">
+                              <div className="w-64 h-64 mx-auto mb-4 bg-white border-2 border-gray-300 rounded-lg shadow-sm grid grid-cols-3 gap-1 p-2">
+                                {[1,2,3,4,5,6,7,8,9].map((num) => (
+                                  <div key={num} className="bg-gray-100 border border-gray-200 rounded flex items-center justify-center text-2xl font-bold text-gray-400 hover:bg-gray-200 cursor-pointer transition-colors">
+                                    {num % 3 === 0 ? (num % 6 === 0 ? 'O' : 'X') : ''}
+                                  </div>
+                                ))}
+                              </div>
+                              <p className="text-sm text-gray-500">Interactive Tic-Tac-Toe Game</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Code Console */}
+                      <div className="h-48 bg-gray-900 text-white overflow-auto">
+                        <div className="px-4 py-3 border-b border-gray-700">
+                          <div className="flex items-center space-x-2">
+                            <div className="flex space-x-1">
+                              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                              <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                            </div>
+                            <span className="text-sm text-gray-400">Terminal</span>
+                          </div>
+                        </div>
+                        <div className="p-4 font-mono text-sm">
+                          <div className="text-green-400">$ Game started!</div>
+                          <div className="text-blue-400">→ Grid rendered successfully ✓</div>
+                          <div className="text-yellow-400">→ Ready for player input...</div>
+                          {currentArtifact.execution_output && (
+                            <div className="text-gray-300 mt-2">
+                              <div className="text-gray-500">Output:</div>
+                              <pre className="whitespace-pre-wrap">{currentArtifact.execution_output}</pre>
+                            </div>
+                          )}
+                          {currentArtifact.error_message && (
+                            <div className="text-red-400 mt-2">
+                              <div className="text-red-500">Error:</div>
+                              <pre className="whitespace-pre-wrap">{currentArtifact.error_message}</pre>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  ) : artifacts.length === 0 ? (
+                    <div className="flex-1 flex items-center justify-center bg-gray-50">
+                      <div className="text-center max-w-sm">
+                        <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 rounded-lg flex items-center justify-center">
+                          <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                          </svg>
+                        </div>
+                        <h3 className="text-lg font-medium text-gray-900 mb-2">No code artifacts yet</h3>
+                        <p className="text-sm text-gray-500">Your live preview will appear here once you start building your project with Ruby.</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center bg-gray-50">
+                      <div className="text-center max-w-sm">
+                        <div className="w-16 h-16 mx-auto mb-4 bg-blue-100 rounded-lg flex items-center justify-center">
+                          <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                        </div>
+                        <h3 className="text-lg font-medium text-gray-900 mb-2">Select a version to preview</h3>
+                        <p className="text-sm text-gray-500">Choose a code version from the dropdown above to see the live preview.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

@@ -40,6 +40,7 @@ Create a detailed week-by-week plan that:
 3. PROVIDES CLEAR MILESTONES (tangible progress each week)
 4. MAINTAINS ENGAGEMENT (exciting deliverables every week)
 5. ENSURES SUCCESS (achievable goals for children)
+6. DEFINES KEY MILESTONES (2-5 major project achievements)
 
 <weekly_planning_principles>
 WEEK 1: FOUNDATION & SETUP
@@ -106,7 +107,7 @@ Week 3: ["Multiple story paths", "Character development", "Story conclusion syst
 </deliverable_examples>
 
 <response_format_examples>
-Example for 2-week Tic-Tac-Toe Game:
+Example for 2-week Tic-Tac-Toe Game (BEGINNER):
 <weekly_plan>
 Week 1: Foundation Building
 - Main Goal: Create the game board and basic interaction
@@ -121,14 +122,88 @@ Week 2: Game Logic Implementation
 - Sessions: 3
 </weekly_plan>
 
-Example for 1-week Calculator:
+<key_milestones>
+Milestone 1: Interactive Game Board (Week 1) - Beautiful 3x3 grid that responds to player clicks
+Milestone 2: Working Game Rules (Week 2) - Complete tic-tac-toe with X and O turns  
+Milestone 3: Ready to Share (Week 2) - Polished game with win detection ready for friends and family
+</key_milestones>
+
+Example for 1-week Calculator (BEGINNER):
 <weekly_plan>
 Week 1: Complete Calculator Build
 - Main Goal: Build a functional calculator from start to finish
-- Concepts: HTML forms, CSS styling, JavaScript math operations
-- Deliverables: Button interface, Number processing, Math operations, Result display
+- Concepts: HTML forms, CSS styling, JavaScript functions, variables
+- Deliverables: Button interface, Number input, Math operations, Result display
 - Sessions: 4
 </weekly_plan>
+
+<key_milestones>
+Milestone 1: Calculator Interface Complete (Week 1) - All buttons working and beautifully styled
+Milestone 2: Math Wizard Ready (Week 1) - Can perform addition, subtraction, multiplication, and division perfectly
+</key_milestones>
+
+Example for 3-week Interactive Story (INTERMEDIATE):
+<weekly_plan>
+Week 1: Story Foundation
+- Main Goal: Create story structure and basic navigation  
+- Concepts: HTML pages, CSS styling, JavaScript navigation, variables
+- Deliverables: Story introduction, Character setup, Basic page transitions
+- Sessions: 3
+
+Week 2: Choice System Magic
+- Main Goal: Implement interactive decision-making system
+- Concepts: Conditional logic, event handling, data storage, arrays
+- Deliverables: Choice buttons, Story branching, Progress tracking
+- Sessions: 3
+
+Week 3: Adventure Complete
+- Main Goal: Finish all story paths and add polish
+- Concepts: Complex conditionals, local storage, advanced styling
+- Deliverables: Multiple endings, Save progress, Final story polish
+- Sessions: 3
+</weekly_plan>
+
+<key_milestones>
+Milestone 1: Story World Created (Week 1) - Characters and world beautifully introduced
+Milestone 2: Choices Come Alive (Week 2) - Interactive decisions that change the story
+Milestone 3: Multiple Adventures (Week 3) - Different story paths based on player choices
+Milestone 4: Epic Story Ready (Week 3) - Complete interactive adventure ready for others to enjoy
+</key_milestones>
+
+Example for 4-week Weather Dashboard (ADVANCED):
+<weekly_plan>
+Week 1: Data Foundation
+- Main Goal: Set up API integration and basic data display
+- Concepts: API integration, JSON handling, async programming, error handling
+- Deliverables: Weather API connection, Basic data display, Error handling
+- Sessions: 3
+
+Week 2: Interactive Interface
+- Main Goal: Create beautiful user interface with search functionality
+- Concepts: Advanced DOM manipulation, form validation, responsive design
+- Deliverables: Search functionality, City selection, Mobile-friendly design
+- Sessions: 4
+
+Week 3: Visual Magic
+- Main Goal: Add charts and advanced visualizations
+- Concepts: Data visualization, chart libraries, complex data processing
+- Deliverables: Temperature charts, Weather graphs, Visual indicators
+- Sessions: 4
+
+Week 4: Professional Polish  
+- Main Goal: Add advanced features and final optimization
+- Concepts: Performance optimization, local storage, advanced features
+- Deliverables: Favorite cities, Weather alerts, Speed improvements
+- Sessions: 3
+</weekly_plan>
+
+<key_milestones>
+Milestone 1: Weather Data Connected (Week 1) - Live weather information displayed perfectly
+Milestone 2: Search Magic Working (Week 2) - Can find and display any city's weather
+Milestone 3: Beautiful Charts Added (Week 3) - Visual graphs showing weather patterns
+Milestone 4: Advanced Features Complete (Week 4) - Favorite cities and alerts working
+Milestone 5: Professional App Ready (Week 4) - Complete weather dashboard ready for real use
+</key_milestones>
 </response_format_examples>
 
 <success_criteria_examples>
@@ -139,14 +214,130 @@ CALCULATOR: ["Perform basic math operations", "Handle user input validation", "D
 QUIZ: ["Create engaging question display", "Track user answers", "Calculate and show scores", "Provide meaningful feedback", "Build reusable quiz system"]
 </success_criteria_examples>
 
+<key_milestones_guidelines>
+KEY MILESTONES: 2-5 major achievements that mark significant project progress
+
+CRITICAL INSTRUCTIONS FOR KEY MILESTONES:
+1. ALWAYS generate exactly 2-5 milestones (no more, no less)
+2. Each milestone must have: title, description, target_week
+3. Use EXCITING, CELEBRATORY language that makes kids proud
+4. Each milestone should be DEMONSTRABLE - something they can show others
+5. Order milestones chronologically by target_week (1, 2, 3, 4)
+6. Align milestones with major weekly achievements
+
+MILESTONE STRUCTURE RULES:
+- TITLE: 2-5 words, exciting and specific (e.g., "First Working Game!")
+- DESCRIPTION: 1-2 sentences explaining what this achievement means
+- TARGET_WEEK: Must match a week in the project duration
+
+MILESTONE EXAMPLES BY PROJECT TYPE:
+
+1-WEEK PROJECTS (2 milestones):
+CALCULATOR: 
+- Milestone 1: "Calculator Interface Complete" (Week 1) - All buttons working and beautifully styled
+- Milestone 2: "Math Wizard Ready" (Week 1) - Can perform all calculations perfectly
+
+2-WEEK PROJECTS (2-3 milestones):
+TIC-TAC-TOE GAME:
+- Milestone 1: "Interactive Game Board" (Week 1) - Beautiful board that responds to clicks
+- Milestone 2: "Game Rules Working" (Week 2) - Complete game with win detection
+- Milestone 3: "Ready to Challenge Friends" (Week 2) - Polished game for sharing
+
+QUIZ APP:
+- Milestone 1: "Question Master Built" (Week 1) - Perfect question display system
+- Milestone 2: "Smart Scoring System" (Week 2) - Tracks answers and calculates scores
+- Milestone 3: "Quiz Champion Ready" (Week 2) - Complete quiz ready for players
+
+3-WEEK PROJECTS (3-4 milestones):
+INTERACTIVE STORY:
+- Milestone 1: "Story World Created" (Week 1) - Foundation and characters established
+- Milestone 2: "Choices Come Alive" (Week 2) - Interactive decision system working
+- Milestone 3: "Multiple Adventures" (Week 3) - All story paths complete
+- Milestone 4: "Epic Story Ready" (Week 3) - Full interactive adventure finished
+
+4-WEEK PROJECTS (4-5 milestones):
+ADVANCED ANIMATION:
+- Milestone 1: "Animation Magic Begins" (Week 1) - Basic animations working
+- Milestone 2: "Characters Come Alive" (Week 2) - Interactive character system
+- Milestone 3: "Story Scenes Flow" (Week 3) - Smooth scene transitions
+- Milestone 4: "Sound and Music Added" (Week 4) - Audio integration complete
+- Milestone 5: "Professional Animation Ready" (Week 4) - Complete polished project
+
+FORMATTING REQUIREMENTS:
+- Title: "Exciting Milestone Name" (keep under 25 characters)
+- Description: Brief explanation (1-2 sentences, under 100 characters)
+- Target_week: Number matching project week (1, 2, 3, or 4)
+
+CHILD-FRIENDLY LANGUAGE EXAMPLES:
+✅ GOOD: "First Working Game", "Math Wizard Ready", "Story World Created"
+❌ BAD: "Core Functionality Implemented", "Algorithm Deployed", "System Integration"
+
+✅ GOOD: "Beautiful board that responds to clicks"
+❌ BAD: "DOM manipulation and event handling implemented"
+</key_milestones_guidelines>
+
 CRITICAL REQUIREMENTS:
-- Use XML tags for structure: <weekly_plan>, <week_X>, <main_goal>, <concepts>, <deliverables>, <sessions>
-- Each week MUST build on previous weeks
-- Deliverables must be concrete and demonstrable
-- Concepts must match the specified difficulty level
-- Sessions should be realistic (2-4 per week typically)
-- Success criteria should be specific and achievable
-- Make each week exciting with visible progress
+YOU MUST FOLLOW THESE RULES EXACTLY:
+
+1. XML TAGS: Always use these exact XML tags in your internal thinking:
+   <weekly_plan>, <week_X>, <main_goal>, <concepts>, <deliverables>, <sessions>, <key_milestones>
+
+2. WEEKLY STRUCTURE: Generate weeks that match the project duration exactly:
+   - 1 week project = 1 week breakdown
+   - 2 week project = 2 weeks breakdown  
+   - 3 week project = 3 weeks breakdown
+   - 4 week project = 4 weeks breakdown
+
+3. PROGRESSIVE BUILDING: Each week MUST build on previous weeks:
+   - Week 1: Foundation and setup (always HTML/CSS basics)
+   - Week 2: Core functionality (JavaScript interactions)
+   - Week 3: Advanced features (complex logic/integrations)
+   - Week 4: Polish and finalization (optimization/showcase)
+
+4. CONCEPTS PER WEEK: List 2-5 concepts per week:
+   - Must match difficulty level (beginner = simpler, advanced = complex)
+   - Must be skills actually used that week
+   - Use child-friendly terms ("making buttons clickable" not "event handlers")
+
+5. DELIVERABLES PER WEEK: List 1-4 concrete deliverables:
+   - Must be DEMONSTRABLE (something they can see/show)
+   - Must be SPECIFIC (not vague like "basic functionality")
+   - Examples: "Working login button", "Score display system", "Character animation"
+
+6. SESSIONS PER WEEK: Realistic coding session count:
+   - 1-week projects: 3-5 sessions
+   - 2-week projects: 2-4 sessions per week
+   - 3-4 week projects: 3-4 sessions per week
+   - Consider child attention spans and school schedules
+
+7. KEY MILESTONES: Generate 2-5 milestones total:
+   - Must have: title (exciting name), description (brief explanation), target_week (1,2,3,4)
+   - Must be chronological by target_week
+   - Must use CELEBRATORY, CHILD-FRIENDLY language
+   - Must be ACHIEVABLE and DEMONSTRABLE
+
+8. SUCCESS CRITERIA: Generate 3-6 specific skills they'll master:
+   - Focus on what they can DO after completing the project
+   - Use action verbs: "Build", "Create", "Implement", "Design"
+   - Make them feel accomplished and capable
+
+VALIDATION CHECKLIST - BEFORE RESPONDING, CHECK:
+□ Number of weeks matches project duration exactly
+□ Each week builds logically on previous weeks
+□ Concepts are appropriate for stated difficulty level
+□ Deliverables are concrete and demonstrable
+□ Sessions count is realistic for children
+□ Milestones are in chronological order by target_week
+□ Milestone count is between 2-5
+□ All milestone titles are exciting and child-friendly
+□ Success criteria are specific and actionable
+
+TONE REQUIREMENTS:
+- Be enthusiastic and encouraging throughout
+- Make each week sound exciting and achievable
+- Use "you'll" and "your" to make it personal
+- Focus on the joy of building and creating
+- Emphasize the cool things they'll be able to show others
 
 Your response should make the child excited about what they'll build each week while ensuring the learning progression is logical and achievable.`
       },
