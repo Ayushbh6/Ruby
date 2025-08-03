@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Project, useProjects } from '../../hooks/useProjects'
 
 interface ProjectCardProps {
@@ -11,6 +12,16 @@ interface ProjectCardProps {
 export default function ProjectCard({ project, onClick }: ProjectCardProps) {
   const [isDeleting, setIsDeleting] = useState(false)
   const { deleteProject } = useProjects()
+  const router = useRouter()
+
+  const handleCardClick = () => {
+    if (onClick) {
+      onClick()
+    } else {
+      // Navigate to project detail page
+      router.push(`/project/${project.id}`)
+    }
+  }
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation() // Prevent triggering onClick
@@ -89,7 +100,7 @@ export default function ProjectCard({ project, onClick }: ProjectCardProps) {
 
   return (
     <div
-      onClick={onClick}
+      onClick={handleCardClick}
       className="bg-white/50 rounded-[20px] p-6 shadow-[inset_0_2px_4px_rgba(255,255,255,0.8),0_4px_16px_rgba(0,0,0,0.1)] border border-white/30 hover:shadow-[inset_0_2px_4px_rgba(255,255,255,0.8),0_8px_24px_rgba(0,0,0,0.15)] hover:bg-white/60 transition-all duration-300 cursor-pointer group"
     >
       {/* Header */}
@@ -101,7 +112,7 @@ export default function ProjectCard({ project, onClick }: ProjectCardProps) {
               {project.title}
             </h3>
             <p className="text-xs text-gray-500 capitalize">
-              {project.project_type.replace('_', ' ')} • {project.difficulty_level}
+              {project.status === 'planning' ? 'Planning phase' : `${project.project_type.replace('_', ' ')} • ${project.difficulty_level}`}
             </p>
           </div>
         </div>
@@ -150,10 +161,18 @@ export default function ProjectCard({ project, onClick }: ProjectCardProps) {
 
         {/* Stats Row */}
         <div className="flex justify-between items-center text-sm text-gray-600">
-          <div className="flex items-center space-x-1">
-            <span>📅</span>
-            <span>Week {project.current_week}/{project.duration_weeks}</span>
-          </div>
+          {/* Only show week progress for active projects */}
+          {project.status !== 'planning' ? (
+            <div className="flex items-center space-x-1">
+              <span>📅</span>
+              <span>Week {project.current_week}/{project.duration_weeks}</span>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-1">
+              <span>📋</span>
+              <span>Planning phase</span>
+            </div>
+          )}
           <div className="flex items-center space-x-1">
             <span>⏱️</span>
             <span>{formatTimeSpent(project.total_time_spent)}</span>

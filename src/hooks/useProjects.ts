@@ -77,6 +77,7 @@ export function useProjects() {
     duration_weeks: number
     learning_goal: string
     difficulty_level?: Project['difficulty_level']
+    master_plan?: any
   }) => {
     if (!user) {
       throw new Error('User must be authenticated to create projects')
@@ -96,9 +97,9 @@ export function useProjects() {
             duration_weeks: projectData.duration_weeks,
             learning_goal: projectData.learning_goal,
             difficulty_level: projectData.difficulty_level || 'beginner',
-            master_plan: {}, // Will be populated by Ruby AI later
-            status: 'planning',
-            current_week: 0,
+            master_plan: projectData.master_plan || {},
+            status: projectData.master_plan ? 'active' : 'planning', // If master plan exists, project is active
+            current_week: projectData.master_plan ? 1 : 0, // Start at week 1 if master plan exists
             progress_percentage: 0
           }
         ])

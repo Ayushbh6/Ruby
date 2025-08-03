@@ -6,6 +6,7 @@ export function useAuth(): AuthState & {
   signUp: (email: string, password: string, userData: any) => Promise<any>
   signIn: (email: string, password: string) => Promise<any>
   signOut: () => Promise<any>
+  getAuthToken: () => Promise<string | null>
 } {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
@@ -91,11 +92,25 @@ export function useAuth(): AuthState & {
     return { error }
   }
 
+  const getAuthToken = async (): Promise<string | null> => {
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession()
+      if (error || !session?.access_token) {
+        return null
+      }
+      return session.access_token
+    } catch (error) {
+      console.error('Error getting auth token:', error)
+      return null
+    }
+  }
+
   return {
     user,
     loading,
     signUp,
     signIn,
-    signOut
+    signOut,
+    getAuthToken
   }
 }

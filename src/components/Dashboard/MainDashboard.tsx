@@ -3,14 +3,17 @@
 import { useState, useRef } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useProjects } from '../../hooks/useProjects'
+import { useWeeklyPlans } from '../../hooks/useWeeklyPlans'
 import MetricsSection from './MetricsSection'
 import ProjectCard from './ProjectCard'
 import RubyProjectScopingChat, { type RubyProjectScopingChatRef } from './RubyProjectScopingChat'
 import ProjectConfirmationModal from './ProjectConfirmationModal'
+import { type RubyMasterPlan } from '../../lib/schemas'
 
 export default function MainDashboard() {
   const { user, signOut } = useAuth()
   const { projects, loading: projectsLoading, createProject } = useProjects()
+  const { createWeeklyPlansFromMasterPlan } = useWeeklyPlans()
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showConfirmationModal, setShowConfirmationModal] = useState(false)
   const [pendingProject, setPendingProject] = useState<{ name: string; description: string } | null>(null)
@@ -59,15 +62,16 @@ export default function MainDashboard() {
   const handleConfirmProject = async (name: string, description: string) => {
     setIsCreatingProject(true)
     try {
+      // Create empty project immediately - planning happens inside the project
       await createProject({
         title: name,
         description: description,
-        project_type: 'experiment', // Default type, Ruby should provide better categorization later
-        initial_request: name, // Could be improved to store the actual initial request
+        project_type: 'experiment', // Will be updated during planning phase
+        initial_request: name,
         scoped_goal: description,
-        duration_weeks: 3, // Default 3 weeks
+        duration_weeks: 1, // Will be updated during planning phase
         learning_goal: description,
-        difficulty_level: 'beginner' // Default level
+        difficulty_level: 'beginner' // Will be updated during planning phase
       })
       
       setShowConfirmationModal(false)
@@ -79,6 +83,7 @@ export default function MainDashboard() {
       setIsCreatingProject(false)
     }
   }
+
 
   const handleCancelProject = async () => {
     setShowConfirmationModal(false)
@@ -134,30 +139,18 @@ export default function MainDashboard() {
         <MetricsSection projects={projects} loading={projectsLoading} />
 
         {/* Action Buttons */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div className="mb-8">
           <button 
             onClick={() => setShowCreateModal(true)}
-            className="bg-gradient-to-r from-purple-500 to-pink-500 text-white p-6 rounded-[20px] shadow-[0_8px_32px_rgba(147,51,234,0.3),inset_0_2px_4px_rgba(255,255,255,0.3)] hover:shadow-[0_12px_40px_rgba(147,51,234,0.4),inset_0_2px_4px_rgba(255,255,255,0.3)] transition-all duration-300 group"
+            className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white p-6 rounded-[20px] shadow-[0_8px_32px_rgba(147,51,234,0.3),inset_0_2px_4px_rgba(255,255,255,0.3)] hover:shadow-[0_12px_40px_rgba(147,51,234,0.4),inset_0_2px_4px_rgba(255,255,255,0.3)] transition-all duration-300 group"
           >
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center justify-center space-x-4">
               <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
                 <span className="text-2xl">🚀</span>
               </div>
-              <div className="text-left">
+              <div className="text-center">
                 <h3 className="text-xl font-bold">Start New Project</h3>
                 <p className="text-purple-100 text-sm">Create something amazing with Ruby!</p>
-              </div>
-            </div>
-          </button>
-
-          <button className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white p-6 rounded-[20px] shadow-[0_8px_32px_rgba(59,130,246,0.3),inset_0_2px_4px_rgba(255,255,255,0.3)] hover:shadow-[0_12px_40px_rgba(59,130,246,0.4),inset_0_2px_4px_rgba(255,255,255,0.3)] transition-all duration-300 group">
-            <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
-                <span className="text-2xl">📖</span>
-              </div>
-              <div className="text-left">
-                <h3 className="text-xl font-bold">Continue Learning</h3>
-                <p className="text-blue-100 text-sm">Pick up where you left off!</p>
               </div>
             </div>
           </button>
@@ -186,10 +179,14 @@ export default function MainDashboard() {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {projects.map((project) => (
-                <ProjectCard key={project.id} project={project} />
-              ))}
+            <div className="overflow-x-auto">
+              <div className="flex space-x-6 pb-4" style={{ minWidth: 'max-content' }}>
+                {projects.map((project) => (
+                  <div key={project.id} className="flex-shrink-0 w-80">
+                    <ProjectCard project={project} />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -212,6 +209,7 @@ export default function MainDashboard() {
         onCancel={handleCancelProject}
         isCreating={isCreatingProject}
       />
+
     </div>
   )
 }
